@@ -22,3 +22,6 @@ maintainers = [
 [project.urls]
 Homepage = "https://www.robot-learning.co/"
 Documentation = "https://www.docs.robot-learning.co/"
+
+[tool.hatch.metadata]
+allow-direct-references = true
