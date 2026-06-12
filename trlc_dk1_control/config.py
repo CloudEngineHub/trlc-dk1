@@ -74,7 +74,7 @@ class DK1RobotConfig:
     gravity_comp_scale: float = 1.0  # tune empirically
 
     # Safety watchdog
-    command_timeout_s: float = 0.5    # hold position (damping only) after this idle period
+    command_timeout_s: float = 0.5    # warn (but keep holding last target) after this idle period
     overcurrent_threshold: int = 20   # consecutive over-limit torque counts before damping
 
     # Gripper parameters

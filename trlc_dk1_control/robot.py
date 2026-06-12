@@ -9,7 +9,8 @@ Architecture:
 
     Server thread (~300 Hz):
         1. Read pos/vel/torque from motor chain
-        2. Watchdog: hold current position if no command received recently
+        2. Watchdog: keep holding the last commanded target if no command
+           received recently (full stiffness + gravity comp)
         3. Compute gravity compensation torque (MuJoCo)
         4. Enforce safety: clip position, clip torque, over-current counter
         5. Push updated MIT commands to motor chain
@@ -71,6 +72,7 @@ class DK1Robot:
         self._gripper_des = 0.0        # normalised gripper position [0=open, 1=closed]
         self._last_cmd_time: float = 0.0
         self._damping_mode: bool = False   # set when over-current threshold exceeded
+        self._stale_warned: bool = False   # throttle the stale-command warning
 
         # Safety counters
         self._overcurrent_count: int = 0
@@ -124,6 +126,7 @@ class DK1Robot:
             self._q_des = q_des.copy()
             self._last_cmd_time = time.monotonic()
             self._damping_mode = False  # reset on new command
+            self._stale_warned = False  # fresh command — re-arm the stale warning
 
     def command_gripper(self, normalized_pos: float) -> None:
         """
@@ -187,13 +190,22 @@ class DK1Robot:
                 damping = self._damping_mode
 
             # ------------------------------------------------------------------
-            # Watchdog: if no command for timeout seconds, hold current position
+            # Watchdog: if no command arrives for command_timeout_s, keep holding
+            # the LAST commanded target (full stiffness + gravity comp) instead of
+            # resetting to the current position. Resetting to current position made
+            # the arm go soft and track its own droop, so it sagged under an
+            # unmodelled end-effector payload during long inference gaps (e.g. a
+            # diffusion policy's denoising step). Holding the last target freezes
+            # the arm in place until the next command. q_des already carries the
+            # last commanded target, so we leave it untouched and only warn.
             # ------------------------------------------------------------------
             now = time.monotonic()
-            if now - last_cmd > cfg.command_timeout_s:
-                q_des = pos[:6].copy()
-                with self._cmd_lock:
-                    self._q_des = q_des
+            if now - last_cmd > cfg.command_timeout_s and not self._stale_warned:
+                logger.warning(
+                    "No command for %.2f s — holding last commanded target.",
+                    now - last_cmd,
+                )
+                self._stale_warned = True
 
             # ------------------------------------------------------------------
             # Gravity compensation
